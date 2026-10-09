@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paywise CRM - WhatsApp Hub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .chat-bg {
+      background-color: #efeae2;
+      background-image: radial-gradient(#d6cfc2 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 h-screen flex flex-col font-sans overflow-hidden">
+
+  <!-- BARRA SUPERIOR / NAVEGACIÓN -->
+  <header class="bg-emerald-700 text-white px-6 py-3 flex items-center justify-between shadow-md z-10">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-full bg-white text-emerald-700 flex items-center justify-center font-bold text-lg shadow">
+        <i class="fa-brands fa-whatsapp text-xl"></i>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight">Paywise CRM</h1>
+        <p class="text-xs text-emerald-200">Google Firestore • Multi-Agente • Inteligencia de Ventas</p>
+      </div>
+    </div>
+
+    <!-- Pestañas -->
+    <nav class="flex items-center space-x-2 bg-emerald-800/60 p-1 rounded-lg">
+      <button onclick="switchTab('crm')" id="tabBtnCRM" class="px-4 py-1.5 rounded-md text-sm font-medium transition bg-white text-emerald-800 shadow">
+        <i class="fa-solid fa-comments mr-2"></i>Bandeja CRM
+      </button>
+      <button onclick="switchTab('analytics')" id="tabBtnAnalytics" class="px-4 py-1.5 rounded-md text-sm font-medium transition text-emerald-100 hover:text-white">
+        <i class="fa-solid fa-chart-line mr-2"></i>Analítica & Respuestas
+      </button>
+    </nav>
+
+    <!-- Estado de sincronización -->
+    <div class="flex items-center space-x-3 text-xs">
+      <div class="bg-emerald-800 px-3 py-1.5 rounded-full flex items-center space-x-2 border border-emerald-600">
+        <span class="w-2 h-2 rounded-full bg-emerald-300 animate-pulse"></span>
+        <span id="syncStatus">Conectado a Firestore</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main class="flex-1 flex overflow-hidden">
+
+    <!-- ==================== VISTA 1: BANDEJA CRM ==================== -->
+    <section id="viewCRM" class="flex-1 flex w-full h-full overflow-hidden">
+      
+      <!-- COLUMNA 1: LISTA DE CHATS -->
+      <aside class="w-80 md:w-96 bg-white border-r border-slate-200 flex flex-col h-full flex-shrink-0">
+        
+        <!-- Buscador -->
+        <div class="p-3 border-b border-slate-200 bg-slate-50">
+          <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+            <input type="text" id="searchInput" placeholder="Buscar cliente o teléfono..." 
+              oninput="debounceSearch()" 
+              class="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          </div>
+
+          <!-- Filtros de Vendedor / Lista -->
+          <div class="flex items-center space-x-1 mt-2.5 overflow-x-auto pb-1 text-xs custom-scrollbar">
+            <button onclick="filterByAgent('')" id="filterAll" class="px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-emerald-600 text-white">
+              Todos (<span id="countAll">0</span>)
+            </button>
+            <button onclick="filterByAgent('Haru')" id="filterHaru" class="px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-slate-200 text-slate-700 hover:bg-slate-300">
+              🔵 Haru (<span id="countHaru">0</span>)
+            </button>
+            <button onclick="filterByAgent('Brian')" id="filterBrian" class="px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-slate-200 text-slate-700 hover:bg-slate-300">
+              🔴 Brian (<span id="countBrian">0</span>)
+            </button>
+            <button onclick="filterByAgent('Sin Asignar')" id="filterUnassigned" class="px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-slate-200 text-slate-700 hover:bg-slate-300">
+              ⚪ Sin Asignar (<span id="countUnassigned">0</span>)
+            </button>
+          </div>
+        </div>
+
+        <!-- Lista de conversaciones -->
+        <div id="chatsListContainer" class="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-100">
+          <div class="p-8 text-center text-slate-400">
+            <i class="fa-solid fa-circle-notch fa-spin text-2xl text-emerald-600 mb-2"></i>
+            <p class="text-sm">Cargando conversaciones...</p>
+          </div>
+        </div>
+      </aside>
+
+      <!-- COLUMNA 2: VISOR DE CONVERSACIÓN -->
+      <section class="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden border-r border-slate-200" id="chatWindow">
+        
+        <!-- Cabecera del chat activo -->
+        <div id="chatHeader" class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm hidden">
+          <div class="flex items-center space-x-3">
+            <div id="chatAvatar" class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-base">
+              ?
+            </div>
+            <div>
+              <h2 id="chatActiveName" class="font-bold text-slate-800 text-base leading-tight">Cliente</h2>
+              <div class="flex items-center space-x-2 text-xs text-slate-500">
+                <span id="chatActivePhone"><i class="fa-solid fa-phone mr-1"></i>--</span>
+                <span>•</span>
+                <span id="chatActiveAgentBadge" class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-medium">Haru</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <a id="btnOpenWhatsApp" href="#" target="_blank" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition shadow-sm">
+              <i class="fa-brands fa-whatsapp text-sm"></i>
+              <span>Abrir en WhatsApp</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Mensajes del chat -->
+        <div id="messagesContainer" class="flex-1 chat-bg p-6 overflow-y-auto custom-scrollbar flex flex-col space-y-3">
+          <div class="m-auto text-center text-slate-400">
+            <i class="fa-regular fa-comments text-5xl mb-3 text-slate-300"></i>
+            <h3 class="font-semibold text-base text-slate-600">Selecciona una conversación</h3>
+            <p class="text-xs text-slate-400 mt-1">Elige un cliente de la lista para ver su historial completo.</p>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- COLUMNA 3: FICHA DE CLIENTE Y CRM -->
+      <aside id="leadPanel" class="w-80 bg-white flex flex-col h-full overflow-y-auto custom-scrollbar p-5 border-l border-slate-200 hidden">
+        <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4 border-b pb-2 flex items-center justify-between">
+          <span>Ficha del Lead</span>
+          <i class="fa-solid fa-id-card text-emerald-600"></i>
+        </h3>
+
+        <!-- Etapa del Lead -->
+        <div class="mb-4">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Estado comercial</label>
+          <select id="selectLeadStage" onchange="updateLeadStage(this.value)" class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 font-medium">
+            <option value="Nuevo">🟢 Nuevo Lead</option>
+            <option value="Contactado">🔵 Contactado</option>
+            <option value="Cotización">🟡 Cotización Enviada</option>
+            <option value="Ganado">🏆 Venta Ganada</option>
+            <option value="Perdido">❌ Perdido / Descartado</option>
+          </select>
+        </div>
+
+        <!-- Reasignar Vendedor -->
+        <div class="mb-4">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Vendedor asignado</label>
+          <select id="selectAssignedAgent" onchange="reassignAgent(this.value)" class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 font-medium">
+            <option value="Haru">🔵 Haru</option>
+            <option value="Brian">🔴 Brian</option>
+            <option value="">⚪ Sin Asignar</option>
+          </select>
+        </div>
+
+        <!-- Notas internas del equipo -->
+        <div class="flex-1 flex flex-col mt-3 border-t pt-3">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Notas internas de Paywise</label>
+          <div class="flex space-x-1 mb-3">
+            <input type="text" id="noteInput" placeholder="Añadir nota interna..." class="flex-1 text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <button onclick="addNote()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+
+          <!-- Historial de notas -->
+          <div id="notesList" class="flex-1 overflow-y-auto space-y-2 text-xs">
+            <p class="text-slate-400 italic text-center py-4">Sin notas internas aún.</p>
+          </div>
+        </div>
+
+      </aside>
+
+    </section>
+
+    <!-- ==================== VISTA 2: ANALÍTICA AVANZADA ==================== -->
+    <section id="viewAnalytics" class="flex-1 bg-slate-50 p-8 overflow-y-auto custom-scrollbar hidden">
+      <div class="max-w-6xl mx-auto space-y-6">
+        
+        <!-- CABECERA DE ANALÍTICA Y FILTROS DE FECHA -->
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-bold text-slate-800 flex items-center">
+                <i class="fa-solid fa-chart-line text-emerald-600 mr-2"></i>
+                Analítica de Actividad, Respuestas y Temas
+              </h2>
+              <p class="text-xs text-slate-500">Haz clic en cualquier barra o porción de las gráficas para filtrar los KPIs automáticamente.</p>
+            </div>
+
+            <!-- Botones Rápidos de Fecha -->
+            <div class="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg text-xs font-medium">
+              <button onclick="setDatePreset('all')" id="presetAll" class="px-3 py-1.5 rounded-md transition bg-emerald-600 text-white shadow-sm">Todo</button>
+              <button onclick="setDatePreset('30days')" id="preset30" class="px-3 py-1.5 rounded-md transition hover:bg-slate-200 text-slate-700">Últimos 30d</button>
+              <button onclick="setDatePreset('7days')" id="preset7" class="px-3 py-1.5 rounded-md transition hover:bg-slate-200 text-slate-700">Últimos 7d</button>
+              <button onclick="setDatePreset('today')" id="presetToday" class="px-3 py-1.5 rounded-md transition hover:bg-slate-200 text-slate-700">Hoy</button>
+            </div>
+          </div>
+
+          <!-- SELECTOR DE RANGO PERSONALIZADO Y AGRUPACIÓN -->
+          <div class="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100 text-xs">
+            <div class="flex items-center space-x-1.5">
+              <span class="text-slate-500 font-semibold">Desde:</span>
+              <input type="date" id="dateStart" onchange="applyAnalyticsFilters()" class="border border-slate-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-emerald-500">
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <span class="text-slate-500 font-semibold">Hasta:</span>
+              <input type="date" id="dateEnd" onchange="applyAnalyticsFilters()" class="border border-slate-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-emerald-500">
+            </div>
+
+            <div class="flex items-center space-x-1.5 ml-auto">
+              <span class="text-slate-500 font-semibold">Agrupar por:</span>
+              <select id="selectGroupBy" onchange="applyAnalyticsFilters()" class="border border-slate-300 rounded px-2 py-1 bg-white font-medium">
+                <option value="day">📅 Por Día</option>
+                <option value="week">📊 Por Semana</option>
+              </select>
+
+              <span class="text-slate-500 font-semibold ml-2">Vendedor:</span>
+              <select id="selectAnalyticsAgent" onchange="applyAnalyticsFilters()" class="border border-slate-300 rounded px-2 py-1 bg-white font-medium">
+                <option value="all">Todos los Vendedores</option>
+                <option value="Haru">🔵 Haru</option>
+                <option value="Brian">🔴 Brian</option>
+                <option value="Sin Asignar">⚪ Sin Asignar</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- BADGES DE FILTROS ACTIVOS DESDE LAS GRÁFICAS -->
+          <div id="activeFiltersBar" class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs hidden">
+            <span class="text-slate-500 font-semibold"><i class="fa-solid fa-filter mr-1 text-emerald-600"></i>Filtro activo de gráfica:</span>
+            <span id="badgeActiveTopic" class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-semibold flex items-center space-x-1 cursor-pointer hover:bg-emerald-200 transition hidden" onclick="clearTopicFilter()">
+              <span id="badgeTopicText">Tema</span>
+              <i class="fa-solid fa-xmark text-xs ml-1"></i>
+            </span>
+            <span id="badgeActiveDate" class="bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold flex items-center space-x-1 cursor-pointer hover:bg-blue-200 transition hidden" onclick="clearDateFilter()">
+              <span id="badgeDateText">Fecha</span>
+              <i class="fa-solid fa-xmark text-xs ml-1"></i>
+            </span>
+            <button onclick="clearAllAnalyticsFilters()" class="text-slate-400 hover:text-slate-600 underline ml-2">Limpiar filtros</button>
+          </div>
+        </div>
+
+        <!-- TARJETAS DE KPIS Y TASA DE RESPUESTA -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          
+          <!-- KPI 1: MENSAJES ENVIADOS -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-bold uppercase mb-1">
+              <span>Mensajes Enviados</span>
+              <i class="fa-solid fa-paper-plane text-emerald-500 text-base"></i>
+            </div>
+            <div class="text-3xl font-extrabold text-slate-800" id="kpiSentMessages">0</div>
+            <div class="text-xs text-slate-500 mt-1">
+              Recibidos: <span id="kpiReceivedMessages" class="font-bold text-slate-700">0</span>
+            </div>
+          </div>
+
+          <!-- KPI 2: TASA DE RESPUESTA -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-blue-500">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-bold uppercase mb-1">
+              <span>Tasa de Respuesta</span>
+              <i class="fa-solid fa-reply-all text-blue-500 text-base"></i>
+            </div>
+            <div class="text-3xl font-extrabold text-blue-600" id="kpiResponseRate">0%</div>
+            <div class="text-xs text-slate-500 mt-1">
+              Clientes que sí contestaron
+            </div>
+          </div>
+
+          <!-- KPI 3: CLIENTES QUE CONTESTARON -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-bold uppercase mb-1">
+              <span>Respondieron</span>
+              <i class="fa-solid fa-user-check text-emerald-600 text-base"></i>
+            </div>
+            <div class="text-3xl font-extrabold text-emerald-600" id="kpiAnsweredContacts">0</div>
+            <div class="text-xs text-slate-500 mt-1">
+              De <span id="kpiTotalContacted" class="font-bold text-slate-700">0</span> contactados
+            </div>
+          </div>
+
+          <!-- KPI 4: CLIENTES SIN RESPUESTA -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-bold uppercase mb-1">
+              <span>Sin Respuesta</span>
+              <i class="fa-solid fa-user-clock text-amber-500 text-base"></i>
+            </div>
+            <div class="text-3xl font-extrabold text-amber-600" id="kpiUnansweredContacts">0</div>
+            <div class="text-xs text-slate-500 mt-1">
+              Requieren re-contacto
+            </div>
+          </div>
+
+        </div>
+
+        <!-- GRÁFICOS DE LÍNEA DE TIEMPO Y TEMAS -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          <!-- GRÁFICO 1: MENSAJES POR DÍA / SEMANA (2 COLUMNAS) -->
+          <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="font-bold text-slate-800 text-sm">Volumen de Mensajes a lo largo del tiempo</h3>
+                <p class="text-xs text-slate-400">Comparativa de mensajes enviados por Paywise vs recibidos de clientes.</p>
+              </div>
+              <div class="flex items-center space-x-3 text-xs font-semibold">
+                <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5"></span>Enviados</span>
+                <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 mr-1.5"></span>Recibidos</span>
+              </div>
+            </div>
+            <div class="flex-1 w-full min-h-[300px]">
+              <canvas id="chartTimeline"></canvas>
+            </div>
+          </div>
+
+          <!-- GRÁFICO 2: CLASIFICACIÓN POR TEMAS (1 COLUMNA) -->
+          <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+            <h3 class="font-bold text-slate-800 text-sm mb-1">Temas de Conversación</h3>
+            <p class="text-xs text-slate-400 mb-4">Ventas, Capacitación, Dudas, Problemas, etc.</p>
+            <div class="flex-1 w-full min-h-[300px] flex items-center justify-center">
+              <canvas id="chartTopics"></canvas>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- JAVASCRIPT DEL CLIENTE -->
+  <script>
+    let currentAgentFilter = "";
+    let currentActiveChatId = null;
+    let allLoadedChats = [];
+    let searchDebounceTimeout = null;
+    let chartTimelineInstance = null;
+    let chartTopicsInstance = null;
+
+    window.addEventListener("DOMContentLoaded", () => {
+      loadStats();
+      loadChats();
+    });
+
+    // Cambiar de pestaña
+    function switchTab(tab) {
+      if (tab === "crm") {
+        document.getElementById("viewCRM").classList.remove("hidden");
+        document.getElementById("viewAnalytics").classList.add("hidden");
+        document.getElementById("tabBtnCRM").className = "px-4 py-1.5 rounded-md text-sm font-medium transition bg-white text-emerald-800 shadow";
+        document.getElementById("tabBtnAnalytics").className = "px-4 py-1.5 rounded-md text-sm font-medium transition text-emerald-100 hover:text-white";
+      } else {
+        document.getElementById("viewCRM").classList.add("hidden");
+        document.getElementById("viewAnalytics").classList.remove("hidden");
+        document.getElementById("tabBtnAnalytics").className = "px-4 py-1.5 rounded-md text-sm font-medium transition bg-white text-emerald-800 shadow";
+        document.getElementById("tabBtnCRM").className = "px-4 py-1.5 rounded-md text-sm font-medium transition text-emerald-100 hover:text-white";
+        applyAnalyticsFilters();
+      }
+    }
+
+    let selectedTopicFilter = "";
+    let selectedDateClickFilter = "";
+
+    // Presets rápidos de fecha (en hora local)
+    function setDatePreset(preset) {
+      document.querySelectorAll("[id^='preset']").forEach(btn => {
+        btn.className = "px-3 py-1.5 rounded-md transition hover:bg-slate-200 text-slate-700";
+      });
+
+      const today = new Date();
+      const formatLocal = d => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      };
+
+      if (preset === 'today') {
+        document.getElementById("presetToday").className = "px-3 py-1.5 rounded-md transition bg-emerald-600 text-white shadow-sm";
+        document.getElementById("dateStart").value = formatLocal(today);
+        document.getElementById("dateEnd").value = formatLocal(today);
+      } else if (preset === '7days') {
+        document.getElementById("preset7").className = "px-3 py-1.5 rounded-md transition bg-emerald-600 text-white shadow-sm";
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        document.getElementById("dateStart").value = formatLocal(d);
+        document.getElementById("dateEnd").value = formatLocal(today);
+      } else if (preset === '30days') {
+        document.getElementById("preset30").className = "px-3 py-1.5 rounded-md transition bg-emerald-600 text-white shadow-sm";
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        document.getElementById("dateStart").value = formatLocal(d);
+        document.getElementById("dateEnd").value = formatLocal(today);
+      } else {
+        document.getElementById("presetAll").className = "px-3 py-1.5 rounded-md transition bg-emerald-600 text-white shadow-sm";
+        document.getElementById("dateStart").value = "";
+        document.getElementById("dateEnd").value = "";
+      }
+
+      applyAnalyticsFilters();
+    }
+
+    // Funciones para limpiar filtros de gráficas
+    function clearTopicFilter() {
+      selectedTopicFilter = "";
+      document.getElementById("badgeActiveTopic").classList.add("hidden");
+      checkActiveFiltersBar();
+      applyAnalyticsFilters();
+    }
+
+    function clearDateFilter() {
+      selectedDateClickFilter = "";
+      document.getElementById("dateStart").value = "";
+      document.getElementById("dateEnd").value = "";
+      document.getElementById("badgeActiveDate").classList.add("hidden");
+      checkActiveFiltersBar();
+      applyAnalyticsFilters();
+    }
+
+    function clearAllAnalyticsFilters() {
+      selectedTopicFilter = "";
+      selectedDateClickFilter = "";
+      document.getElementById("dateStart").value = "";
+      document.getElementById("dateEnd").value = "";
+      document.getElementById("badgeActiveTopic").classList.add("hidden");
+      document.getElementById("badgeActiveDate").classList.add("hidden");
+      document.getElementById("selectAnalyticsAgent").value = "all";
+      checkActiveFiltersBar();
+      setDatePreset('all');
+    }
+
+    function checkActiveFiltersBar() {
+      const bar = document.getElementById("activeFiltersBar");
+      if (selectedTopicFilter || selectedDateClickFilter) {
+        bar.classList.remove("hidden");
+      } else {
+        bar.classList.add("hidden");
+      }
+    }
+
+    // Aplicar filtros de fecha, tema y llamar API de Analítica
+    async function applyAnalyticsFilters() {
+      const startDate = document.getElementById("dateStart").value;
+      const endDate = document.getElementById("dateEnd").value;
+      const groupBy = document.getElementById("selectGroupBy").value;
+      const agent = document.getElementById("selectAnalyticsAgent").value;
+
+      let url = `/api/analytics?groupBy=${groupBy}&agent=${agent}&`;
+      if (startDate) url += `startDate=${startDate}&`;
+      if (endDate) url += `endDate=${endDate}&`;
+      if (selectedTopicFilter) url += `topic=${encodeURIComponent(selectedTopicFilter)}&`;
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        // Actualizar KPIs
+        document.getElementById("kpiSentMessages").innerText = data.summary.sent.toLocaleString();
+        document.getElementById("kpiReceivedMessages").innerText = data.summary.received.toLocaleString();
+        document.getElementById("kpiResponseRate").innerText = `${data.summary.responseRate}%`;
+        document.getElementById("kpiAnsweredContacts").innerText = data.summary.totalAnswered;
+        document.getElementById("kpiTotalContacted").innerText = data.summary.totalContacted;
+        document.getElementById("kpiUnansweredContacts").innerText = data.summary.unanswered;
+
+        renderAnalyticsCharts(data);
+      } catch (e) {
+        console.error("Error al cargar analítica avanzada:", e);
+      }
+    }
+
+    // Renderizar Gráficos de Analítica con soporte de CLIC PARA FILTRAR
+    function renderAnalyticsCharts(data) {
+      // 1. Gráfico de Línea de Tiempo (Clic en una barra para filtrar a esa fecha)
+      const ctxTimeline = document.getElementById("chartTimeline").getContext("2d");
+      if (chartTimelineInstance) chartTimelineInstance.destroy();
+
+      const labels = data.timeline.map(t => t.key);
+      const sentData = data.timeline.map(t => t.sent);
+      const receivedData = data.timeline.map(t => t.received);
+
+      chartTimelineInstance = new Chart(ctxTimeline, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: "Enviados",
+              data: sentData,
+              backgroundColor: "#10b981",
+              borderRadius: 4
+            },
+            {
+              label: "Recibidos",
+              data: receivedData,
+              backgroundColor: "#3b82f6",
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (evt, elements) => {
+            if (elements.length > 0) {
+              const index = elements[0].index;
+              const clickedLabel = labels[index];
+              if (clickedLabel && clickedLabel.includes("-")) {
+                // Formato fecha YYYY-MM-DD
+                document.getElementById("dateStart").value = clickedLabel;
+                document.getElementById("dateEnd").value = clickedLabel;
+                selectedDateClickFilter = clickedLabel;
+                document.getElementById("badgeDateText").innerText = `Fecha: ${clickedLabel}`;
+                document.getElementById("badgeActiveDate").classList.remove("hidden");
+                checkActiveFiltersBar();
+                applyAnalyticsFilters();
+              }
+            }
+          },
+          scales: {
+            x: { stacked: false, grid: { display: false } },
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 2. Gráfico de Temas de Conversación (Clic en porción para filtrar los KPIs)
+      const ctxTopics = document.getElementById("chartTopics").getContext("2d");
+      if (chartTopicsInstance) chartTopicsInstance.destroy();
+
+      const topicLabels = Object.keys(data.topics);
+      const topicValues = Object.values(data.topics);
+
+      chartTopicsInstance = new Chart(ctxTopics, {
+        type: "doughnut",
+        data: {
+          labels: topicLabels,
+          datasets: [{
+            data: topicValues,
+            backgroundColor: [
+              "#10b981", // Ventas
+              "#8b5cf6", // Capacitación
+              "#ef4444", // Problemas
+              "#f59e0b", // Dudas
+              "#3b82f6", // Pagos
+              "#94a3b8"  // General
+            ]
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (evt, elements) => {
+            if (elements.length > 0) {
+              const index = elements[0].index;
+              const clickedTopic = topicLabels[index];
+              if (clickedTopic) {
+                selectedTopicFilter = clickedTopic;
+                document.getElementById("badgeTopicText").innerText = `Tema: ${clickedTopic}`;
+                document.getElementById("badgeActiveTopic").classList.remove("hidden");
+                checkActiveFiltersBar();
+                applyAnalyticsFilters();
+              }
+            }
+          },
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    // Cargar Estadísticas iniciales de chats
+    async function loadStats() {
+      try {
+        const res = await fetch("/api/stats");
+        const data = await res.json();
+
+        document.getElementById("countAll").innerText = data.totalChats;
+        document.getElementById("countHaru").innerText = data.agentDistribution["Haru"] || 0;
+        document.getElementById("countBrian").innerText = data.agentDistribution["Brian"] || 0;
+        document.getElementById("countUnassigned").innerText = data.agentDistribution["Sin Asignar"] || 0;
+      } catch (e) {
+        console.error("Error al cargar stats:", e);
+      }
+    }
+
+    // Cargar Lista de Chats
+    async function loadChats() {
+      const container = document.getElementById("chatsListContainer");
+      try {
+        let url = `/api/chats?`;
+        if (currentAgentFilter) url += `agent=${encodeURIComponent(currentAgentFilter)}&`;
+        const q = document.getElementById("searchInput").value.trim();
+        if (q) url += `search=${encodeURIComponent(q)}&`;
+
+        const res = await fetch(url);
+        const data = await res.json();
+        allLoadedChats = data.chats;
+
+        if (allLoadedChats.length === 0) {
+          container.innerHTML = `<div class="p-8 text-center text-slate-400 text-sm">No se encontraron conversaciones.</div>`;
+          return;
+        }
+
+        container.innerHTML = allLoadedChats.map(c => {
+          const initials = (c.name || "C").slice(0, 2).toUpperCase();
+          const isSelected = c.id === currentActiveChatId ? "bg-emerald-50 border-r-4 border-emerald-600" : "hover:bg-slate-50";
+          
+          let agentBadge = "";
+          if (c.assignedAgent === "Haru") {
+            agentBadge = `<span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">Haru</span>`;
+          } else if (c.assignedAgent === "Brian") {
+            agentBadge = `<span class="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">Brian</span>`;
+          }
+
+          let dateDisplay = "";
+          if (c.lastMessageTimestamp) {
+            const d = new Date(c.lastMessageTimestamp);
+            dateDisplay = `${d.getDate()}/${d.getMonth()+1}`;
+          }
+
+          return `
+            <div onclick="openChat('${c.id}')" class="p-3 cursor-pointer transition flex items-start space-x-3 ${isSelected}">
+              <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                ${initials}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between mb-0.5">
+                  <h4 class="font-semibold text-slate-800 text-xs truncate">${c.name}</h4>
+                  <span class="text-[10px] text-slate-400">${dateDisplay}</span>
+                </div>
+                <p class="text-xs text-slate-500 truncate mb-1">${c.lastMessageSnippet || "Sin mensajes recientes"}</p>
+                <div class="flex items-center space-x-1">
+                  ${agentBadge}
+                  <span class="text-[10px] text-slate-400 truncate">${c.phoneNumber ? c.phoneNumber.replace('@c.us', '') : ''}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+      } catch (e) {
+        console.error("Error al cargar chats:", e);
+      }
+    }
+
+    function filterByAgent(agent) {
+      currentAgentFilter = agent;
+      document.querySelectorAll("[id^='filter']").forEach(btn => {
+        btn.className = "px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-slate-200 text-slate-700 hover:bg-slate-300";
+      });
+
+      if (!agent) document.getElementById("filterAll").className = "px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-emerald-600 text-white";
+      else if (agent === "Haru") document.getElementById("filterHaru").className = "px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-blue-600 text-white";
+      else if (agent === "Brian") document.getElementById("filterBrian").className = "px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-red-600 text-white";
+      else if (agent === "Sin Asignar") document.getElementById("filterUnassigned").className = "px-2.5 py-1 rounded-full font-medium whitespace-nowrap bg-slate-600 text-white";
+
+      loadChats();
+    }
+
+    function debounceSearch() {
+      clearTimeout(searchDebounceTimeout);
+      searchDebounceTimeout = setTimeout(() => {
+        loadChats();
+      }, 300);
+    }
+
+    async function openChat(chatId) {
+      currentActiveChatId = chatId;
+      loadChats();
+
+      const chat = allLoadedChats.find(c => c.id === chatId);
+      if (!chat) return;
+
+      document.getElementById("chatHeader").classList.remove("hidden");
+      document.getElementById("leadPanel").classList.remove("hidden");
+      document.getElementById("chatActiveName").innerText = chat.name;
+      
+      const phoneClean = (chat.phoneNumber || "").replace(/[^0-9]/g, "");
+      document.getElementById("chatActivePhone").innerHTML = `<i class="fa-solid fa-phone mr-1"></i>${chat.phoneNumber ? chat.phoneNumber.replace('@c.us', '') : 'Sin teléfono'}`;
+      
+      const btnWA = document.getElementById("btnOpenWhatsApp");
+      if (phoneClean) {
+        btnWA.href = `https://wa.me/${phoneClean}`;
+        btnWA.classList.remove("hidden");
+      } else {
+        btnWA.classList.add("hidden");
+      }
+
+      document.getElementById("chatActiveAgentBadge").innerText = chat.assignedAgent || "Sin Asignar";
+      document.getElementById("selectAssignedAgent").value = chat.assignedAgent || "";
+      document.getElementById("selectLeadStage").value = chat.leadStage || "Nuevo";
+
+      renderNotes(chat.notes || []);
+
+      const msgBox = document.getElementById("messagesContainer");
+      msgBox.innerHTML = `<div class="m-auto text-slate-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Cargando conversación...</div>`;
+
+      try {
+        const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}/messages`);
+        const data = await res.json();
+
+        if (data.messages.length === 0) {
+          msgBox.innerHTML = `<div class="m-auto text-slate-400 text-xs">No hay mensajes registrados en esta conversación.</div>`;
+          return;
+        }
+
+        msgBox.innerHTML = data.messages.map(m => {
+          const isSent = m.direction === "sent";
+          const bubbleBg = isSent ? "bg-[#d9fdd3] text-slate-900 ml-auto" : "bg-white text-slate-900 mr-auto";
+          
+          let time = "";
+          if (m.timestamp) {
+            const d = new Date(m.timestamp);
+            time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          }
+
+          return `
+            <div class="max-w-[75%] rounded-lg p-2.5 shadow-sm text-xs leading-relaxed relative ${bubbleBg}">
+              ${m.text ? `<p class="whitespace-pre-wrap">${m.text}</p>` : `<span class="italic text-slate-400">[${m.type}]</span>`}
+              <div class="text-[10px] text-slate-400 text-right mt-1 flex items-center justify-end space-x-1">
+                <span>${time}</span>
+                ${isSent ? `<i class="fa-solid fa-check-double text-blue-500 text-[10px]"></i>` : ''}
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        msgBox.scrollTop = msgBox.scrollHeight;
+      } catch (e) {
+        console.error("Error al cargar mensajes:", e);
+      }
+    }
+
+    async function updateLeadStage(stage) {
+      if (!currentActiveChatId) return;
+      await fetch(`/api/chats/${encodeURIComponent(currentActiveChatId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadStage: stage })
+      });
+    }
+
+    async function reassignAgent(agent) {
+      if (!currentActiveChatId) return;
+      await fetch(`/api/chats/${encodeURIComponent(currentActiveChatId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedAgent: agent })
+      });
+      document.getElementById("chatActiveAgentBadge").innerText = agent || "Sin Asignar";
+      loadChats();
+    }
+
+    async function addNote() {
+      const input = document.getElementById("noteInput");
+      const text = input.value.trim();
+      if (!text || !currentActiveChatId) return;
+
+      await fetch(`/api/chats/${encodeURIComponent(currentActiveChatId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ noteText: text, noteAuthor: "Equipo" })
+      });
+
+      input.value = "";
+      const chat = allLoadedChats.find(c => c.id === currentActiveChatId);
+      if (chat) {
+        if (!chat.notes) chat.notes = [];
+        chat.notes.push({ text, author: "Equipo", createdAt: new Date().toISOString() });
+        renderNotes(chat.notes);
+      }
+    }
+
+    function renderNotes(notes) {
+      const list = document.getElementById("notesList");
+      if (!notes || notes.length === 0) {
+        list.innerHTML = `<p class="text-slate-400 italic text-center py-4">Sin notas internas aún.</p>`;
+        return;
+      }
+
+      list.innerHTML = notes.map(n => `
+        <div class="bg-slate-50 border border-slate-200 rounded p-2">
+          <p class="text-slate-700">${n.text}</p>
+          <div class="text-[10px] text-slate-400 mt-1 flex justify-between">
+            <span>${n.author || 'Equipo'}</span>
+            <span>${new Date(n.createdAt).toLocaleDateString()}</span>
+          </div>
+        </div>
+      `).join("");
+    }
+  </script>
+</body>
+</html>
